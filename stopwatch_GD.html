@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chronograph</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Montserrat:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --gold-1:#f6e7b4; --gold-2:#d4af37; --gold-3:#8a6a1c;
+    --ink:#07070a; --panel:#0d0d12; --line:rgba(212,175,55,.28); --muted:#8d8672;
+    --serif:"Cormorant Garamond","Times New Roman",serif;
+    --sans:"Montserrat","Segoe UI","Malgun Gothic",sans-serif;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:32px 16px;
+    background:
+      radial-gradient(ellipse at 50% 0%, rgba(212,175,55,.10), transparent 55%),
+      radial-gradient(ellipse at 50% 100%, rgba(212,175,55,.06), transparent 50%),
+      #050507;
+    color:#efe8d4; font-family:var(--sans);
+  }
+  /* Background: procedurally generated Hong Kong night skyline (canvas) */
+  .bg { position:fixed; inset:0; z-index:0; overflow:hidden; background:#050507; }
+  .bg canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .bg::after { content:""; position:absolute; inset:0;
+    background:
+      radial-gradient(ellipse at center, rgba(5,5,7,.62) 0%, rgba(5,5,7,.22) 85%),
+      linear-gradient(180deg, rgba(5,5,7,.3), rgba(5,5,7,.05) 50%, rgba(5,5,7,.4)); }
+  .wrap { position:relative; z-index:1; width:min(92vw,440px); text-align:center; }
+  .brand { font-family:var(--serif); font-size:13px; letter-spacing:.55em; text-transform:uppercase; color:var(--gold-2); padding-left:.55em; }
+  .brand::after { content:""; display:block; width:48px; height:1px; margin:14px auto 0; background:linear-gradient(90deg,transparent,var(--gold-2),transparent); }
+
+  /* Dial */
+  .dial { position:relative; margin:28px auto 0; width:min(78vw,340px); aspect-ratio:1; filter:drop-shadow(0 30px 50px rgba(0,0,0,.8)) drop-shadow(0 0 40px rgba(212,175,55,.08)); }
+  .dial svg { width:100%; height:100%; display:block; }
+
+  /* Digital */
+  .digital { margin-top:30px; font-family:var(--serif); font-weight:300; font-size:clamp(46px,13vw,68px); line-height:1; letter-spacing:.04em; font-variant-numeric:tabular-nums;
+    background:linear-gradient(180deg,var(--gold-1),var(--gold-2) 55%,var(--gold-3)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .digital small { font-size:.5em; opacity:.75; letter-spacing:.02em; }
+  .status { margin-top:10px; font-size:10px; letter-spacing:.45em; text-transform:uppercase; color:var(--muted); padding-left:.45em; }
+
+  /* Buttons */
+  .buttons { display:flex; gap:14px; margin-top:30px; }
+  button {
+    flex:1; padding:15px 6px; background:transparent; color:var(--gold-1); cursor:pointer;
+    border:1px solid var(--line); border-radius:2px; font-family:var(--sans); font-size:11px; font-weight:400; letter-spacing:.35em; text-transform:uppercase; padding-left:calc(6px + .35em);
+    transition:all .3s ease; position:relative;
+  }
+  button:hover:not(:disabled) { border-color:var(--gold-2); box-shadow:0 0 22px rgba(212,175,55,.18) inset, 0 0 18px rgba(212,175,55,.12); }
+  button:disabled { opacity:.28; cursor:default; }
+  #start { background:linear-gradient(135deg,var(--gold-1),var(--gold-2) 50%,var(--gold-3)); color:#1a1405; border-color:transparent; font-weight:500; }
+  #start:hover { filter:brightness(1.1); box-shadow:0 0 28px rgba(212,175,55,.35); }
+  #start.running { background:transparent; color:var(--gold-1); border-color:var(--gold-2); }
+
+  /* Laps */
+  .laps-head { display:none; margin-top:30px; padding:0 4px 10px; font-size:9px; letter-spacing:.35em; text-transform:uppercase; color:var(--muted); justify-content:space-between; border-bottom:1px solid var(--line); }
+  .laps-head.show { display:flex; }
+  ul { list-style:none; padding:0; margin:0; max-height:200px; overflow:auto; scrollbar-width:thin; scrollbar-color:var(--gold-3) transparent; }
+  li { display:grid; grid-template-columns:48px 1fr 1fr; padding:12px 4px; border-bottom:1px solid rgba(212,175,55,.1); font-family:var(--serif); font-size:19px; font-variant-numeric:tabular-nums; text-align:right; animation:in .5s ease; }
+  li span:first-child { text-align:left; font-family:var(--sans); font-size:10px; letter-spacing:.2em; color:var(--gold-2); align-self:center; }
+  li span:nth-child(3) { color:var(--muted); }
+  @keyframes in { from { opacity:0; transform:translateY(-6px); } }
+  .hint { margin-top:26px; font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:#5d5849; }
+</style>
+</head>
+<body>
+<div class="bg">
+  <canvas id="city" aria-hidden="true"></canvas>
+</div>
+<div class="wrap">
+  <div class="brand">Chronograph</div>
+
+  <div class="dial">
+    <svg viewBox="0 0 400 400" aria-hidden="true">
+      <defs>
+        <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#f6e7b4"/><stop offset=".35" stop-color="#d4af37"/>
+          <stop offset=".65" stop-color="#8a6a1c"/><stop offset="1" stop-color="#e9cf7d"/>
+        </linearGradient>
+        <radialGradient id="face" cx="50%" cy="38%" r="75%">
+          <stop offset="0" stop-color="#1a1a21"/><stop offset=".6" stop-color="#0b0b10"/><stop offset="1" stop-color="#050507"/>
+        </radialGradient>
+        <radialGradient id="gloss" cx="35%" cy="20%" r="60%">
+          <stop offset="0" stop-color="#fff" stop-opacity=".07"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="hs" x="-50%" y="-50%" width="200%" height="200%"><feDropShadow dx="2" dy="4" stdDeviation="3" flood-color="#000" flood-opacity=".7"/></filter>
+      </defs>
+      <circle cx="200" cy="200" r="196" fill="url(#gold)"/>
+      <circle cx="200" cy="200" r="186" fill="#0a0a0d"/>
+      <circle cx="200" cy="200" r="183" fill="none" stroke="url(#gold)" stroke-width="1.2"/>
+      <circle cx="200" cy="200" r="178" fill="url(#face)"/>
+      <g id="guilloche" opacity=".07" stroke="#d4af37" fill="none" stroke-width=".6"></g>
+      <g id="ticks"></g>
+      <text x="200" y="120" text-anchor="middle" font-family="Cormorant Garamond, serif" font-size="13" letter-spacing="5" fill="#d4af37">CHRONO</text>
+      <!-- minute subdial -->
+      <g transform="translate(200 262)">
+        <circle r="44" fill="#08080b" stroke="url(#gold)" stroke-width="1.2"/>
+        <circle r="40" fill="none" stroke="rgba(212,175,55,.2)" stroke-width=".6"/>
+        <g id="subticks"></g>
+        <g id="minHand" filter="url(#hs)"><path d="M0 -36 L2 0 L1.3 9 L-1.3 9 L-2 0 Z" fill="#f6e7b4"/></g>
+        <circle r="3" fill="url(#gold)"/>
+      </g>
+      <!-- seconds hand -->
+      <g id="secHand" filter="url(#hs)">
+        <path d="M200 36 L201.8 200 L201.2 232 L198.8 232 L198.2 200 Z" fill="#f2d98a"/>
+        <circle cx="200" cy="200" r="5" fill="none" stroke="url(#gold)" stroke-width="1.6"/>
+      </g>
+      <circle cx="200" cy="200" r="8" fill="url(#gold)"/>
+      <circle cx="200" cy="200" r="2.6" fill="#0a0a0d"/>
+      <circle cx="200" cy="200" r="178" fill="url(#gloss)"/>
+    </svg>
+  </div>
+
+  <div class="digital" id="display">00:00<small>.00</small></div>
+  <div class="status" id="status">Ready</div>
+
+  <div class="buttons">
+    <button id="start">Start</button>
+    <button id="lap" disabled>Lap</button>
+    <button id="reset" disabled>Reset</button>
+  </div>
+
+  <div class="laps-head" id="lapsHead"><span>Lap</span><span>Split</span><span>Total</span></div>
+  <ul id="laps"></ul>
+  <div class="hint">Space · L · R</div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const NS = 'http://www.w3.org/2000/svg';
+  const display = $('display'), statusEl = $('status'), startBtn = $('start'), lapBtn = $('lap'), resetBtn = $('reset'),
+        lapsEl = $('laps'), lapsHead = $('lapsHead'), secHand = $('secHand'), minHand = $('minHand');
+
+  /* ---- dial decoration ---- */
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    parent.appendChild(e); return e;
+  }
+  const ticks = $('ticks');
+  for (let i = 0; i < 60; i++) {
+    const major = i % 5 === 0, a = i * 6 * Math.PI / 180, r1 = 170, r2 = major ? 154 : 163;
+    el('line', { x1: 200 + r1 * Math.sin(a), y1: 200 - r1 * Math.cos(a), x2: 200 + r2 * Math.sin(a), y2: 200 - r2 * Math.cos(a),
+      stroke: major ? '#f6e7b4' : '#8a6a1c', 'stroke-width': major ? 2.4 : 1, 'stroke-linecap': 'round' }, ticks);
+    if (major) {
+      const rt = 138, t = el('text', { x: 200 + rt * Math.sin(a), y: 200 - rt * Math.cos(a) + 5, 'text-anchor': 'middle',
+        'font-family': 'Cormorant Garamond, serif', 'font-size': 17, fill: '#d4af37' }, ticks);
+      t.textContent = i === 0 ? 60 : i;
+    }
+  }
+  const sub = $('subticks');
+  for (let i = 0; i < 30; i++) {
+    const major = i % 5 === 0, a = i * 12 * Math.PI / 180, r1 = 40, r2 = major ? 33 : 36.5;
+    el('line', { x1: r1 * Math.sin(a), y1: -r1 * Math.cos(a), x2: r2 * Math.sin(a), y2: -r2 * Math.cos(a),
+      stroke: major ? '#d4af37' : '#6d5516', 'stroke-width': major ? 1.2 : .7 }, sub);
+  }
+  const gu = $('guilloche');
+  for (let i = 0; i < 36; i++) el('circle', { cx: 200 + 22 * Math.cos(i * Math.PI / 18), cy: 200 + 22 * Math.sin(i * Math.PI / 18), r: 110 }, gu);
+
+  /* ---- stopwatch logic ---- */
+  let elapsed = 0, startTime = 0, raf = null, lastLap = 0, lapCount = 0;
+  const pad = (n, l = 2) => String(n).padStart(l, '0');
+  function fmt(ms) {
+    const cs = Math.floor(ms / 10) % 100, s = Math.floor(ms / 1000) % 60, m = Math.floor(ms / 60000) % 60, h = Math.floor(ms / 3600000);
+    return (h ? pad(h) + ':' : '') + pad(m) + ':' + pad(s) + '.' + pad(cs);
+  }
+  function render() {
+    const t = fmt(elapsed), i = t.lastIndexOf('.');
+    display.innerHTML = t.slice(0, i) + '<small>' + t.slice(i) + '</small>';
+    secHand.setAttribute('transform', `rotate(${(elapsed / 1000 % 60) * 6} 200 200)`);
+    minHand.setAttribute('transform', `rotate(${(elapsed / 60000 % 30) * 12})`);
+  }
+  function loop() { elapsed = performance.now() - startTime; render(); raf = requestAnimationFrame(loop); }
+
+  function toggle() {
+    if (raf === null) {
+      startTime = performance.now() - elapsed;
+      raf = requestAnimationFrame(loop);
+      startBtn.textContent = 'Stop'; startBtn.classList.add('running');
+      lapBtn.disabled = false; resetBtn.disabled = false; statusEl.textContent = 'Running';
+    } else {
+      cancelAnimationFrame(raf); raf = null; elapsed = performance.now() - startTime; render();
+      startBtn.textContent = 'Resume'; startBtn.classList.remove('running');
+      lapBtn.disabled = true; statusEl.textContent = 'Paused';
+    }
+  }
+  function lap() {
+    if (raf === null) return;
+    lapCount++; lapsHead.classList.add('show');
+    const li = document.createElement('li');
+    li.innerHTML = `<span>${pad(lapCount)}</span><span>${fmt(elapsed - lastLap)}</span><span>${fmt(elapsed)}</span>`;
+    lapsEl.prepend(li); lastLap = elapsed;
+  }
+  function reset() {
+    cancelAnimationFrame(raf); raf = null;
+    elapsed = 0; lastLap = 0; lapCount = 0;
+    lapsEl.innerHTML = ''; lapsHead.classList.remove('show'); render();
+    startBtn.textContent = 'Start'; startBtn.classList.remove('running');
+    lapBtn.disabled = true; resetBtn.disabled = true; statusEl.textContent = 'Ready';
+  }
+
+  startBtn.onclick = toggle; lapBtn.onclick = lap; resetBtn.onclick = reset;
+  document.addEventListener('keydown', e => {
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+    else if (e.key.toLowerCase() === 'l') lap();
+    else if (e.key.toLowerCase() === 'r') reset();
+  });
+  render();
+
+</script>
+<script>
+/* Hong Kong night skyline — generated live on canvas (no video file needed) */
+(function () {
+  const cv = document.getElementById('city'), ctx = cv.getContext('2d');
+  const WIN = ['#ffd98a', '#ffe9b0', '#fff4d6', '#ffc470', '#9fd8ff'];
+  let W, H, dpr, hy, u, layers, stars, dashes, boats, skyG, waterG, tintG, hazeG;
+  const t0 = performance.now();
+
+  function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const rr = (r, a, b) => a + r() * (b - a);
+
+  function windowsRect(g, x, y, w, h, L, r) {
+    const s = L.sp * u, ww = s * .5, wh = s * .62;
+    for (let wy = y + s; wy < y + h - s * .6; wy += s * 1.35)
+      for (let wx = x + s * .8; wx < x + w - ww - s * .4; wx += s) {
+        if (r() > L.wp) continue;
+        const col = WIN[(r() * WIN.length) | 0];
+        if (r() < .04) { L.blinks.push({ x: wx, y: wy, w: ww, h: wh, col, ph: r() * 6.28, sp: .5 + r() * 2 }); continue; }
+        g.globalAlpha = L.wa * (.55 + .45 * r()); g.fillStyle = col; g.fillRect(wx, wy, ww, wh);
+      }
+    g.globalAlpha = 1;
+  }
+
+  function building(g, x, w, h, base, L, r) {
+    const top = base - h, gr = g.createLinearGradient(0, top, 0, base);
+    gr.addColorStop(0, L.c1); gr.addColorStop(1, L.c2); g.fillStyle = gr;
+    const k = r(); let wy0 = top, wh0 = h;
+    if (k < .18) { g.beginPath(); g.moveTo(x, base); g.lineTo(x, top + w * .45); g.lineTo(x + w, top); g.lineTo(x + w, base); g.fill(); wy0 = top + w * .45; wh0 = h - w * .45; }
+    else if (k < .4) { const iw = w * .6, ih = h * .18; g.fillRect(x, top + ih, w, h - ih); g.fillRect(x + (w - iw) / 2, top, iw, ih + 1); wy0 = top + ih; wh0 = h - ih; }
+    else g.fillRect(x, top, w, h);
+    if (k > .9) { g.fillStyle = L.c1; g.fillRect(x + w / 2 - .5, top - 14 * u, 1, 14 * u); if (L.beac) L.beacons.push({ x: x + w / 2, y: top - 14 * u, ph: r() * 6 }); }
+    g.fillStyle = 'rgba(255,196,110,.10)'; g.fillRect(x + w - 1, top, 1, h);
+    windowsRect(g, x, wy0, w, wh0, L, r);
+  }
+
+  function landmarks(g, L, r, base) {
+    const gold = 'rgba(255,200,120,.16)';
+    const grad = (top) => { const q = g.createLinearGradient(0, top, 0, base); q.addColorStop(0, '#1f2846'); q.addColorStop(1, '#0d1325'); return q; };
+    // IFC-style tower
+    let cx = L.Lw * .30, w = 46 * u, h = 430 * u, top = base - h;
+    g.fillStyle = grad(top);
+    g.fillRect(cx - w / 2, top + 40 * u, w, h - 40 * u); g.fillRect(cx - w * .36, top + 14 * u, w * .72, 30 * u);
+    g.fillRect(cx - w * .2, top, w * .4, 18 * u); g.fillRect(cx - 1, top - 50 * u, 2, 52 * u);
+    g.fillStyle = gold; g.fillRect(cx + w / 2 - 1.5, top + 40 * u, 1.5, h - 40 * u);
+    windowsRect(g, cx - w / 2, top + 44 * u, w, h - 44 * u, L, r);
+    L.beacons.push({ x: cx, y: top - 50 * u, ph: 0 }); L.origins.push({ x: cx, y: top - 46 * u });
+    // Central Plaza-style tower with neon crown
+    cx = L.Lw * .52; w = 44 * u; h = 360 * u; top = base - h;
+    g.fillStyle = grad(top);
+    g.fillRect(cx - w / 2, top + 70 * u, w, h - 70 * u);
+    g.beginPath(); g.moveTo(cx - w / 2, top + 70 * u); g.lineTo(cx, top + 14 * u); g.lineTo(cx + w / 2, top + 70 * u); g.fill();
+    g.fillRect(cx - 1, top - 40 * u, 2, 56 * u);
+    windowsRect(g, cx - w / 2, top + 76 * u, w, h - 76 * u, L, r);
+    L.neons.push({ x: cx - w / 2, y: top + 30 * u, w, h: 100 * u });
+    L.beacons.push({ x: cx, y: top - 40 * u, ph: 2 }); L.origins.push({ x: cx, y: top - 36 * u });
+    // Bank of China-style prism
+    cx = L.Lw * .72; w = 42 * u; h = 330 * u; top = base - h;
+    g.fillStyle = grad(top);
+    g.fillRect(cx - w / 2, top + 40 * u, w * .55, h - 40 * u);
+    g.beginPath(); g.moveTo(cx + w * .05, base); g.lineTo(cx + w * .05, top); g.lineTo(cx + w / 2, top + 100 * u); g.lineTo(cx + w / 2, base); g.fill();
+    g.fillRect(cx - w * .3, top - 30 * u, 1.5, 72 * u); g.fillRect(cx + w * .2, top - 50 * u, 1.5, 60 * u);
+    g.strokeStyle = 'rgba(255,200,120,.22)'; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(cx + w * .05, top); g.lineTo(cx + w / 2, top + 100 * u); g.moveTo(cx + w * .05, base); g.lineTo(cx + w * .05, top); g.stroke();
+    windowsRect(g, cx - w / 2, top + 44 * u, w, h - 44 * u, L, r);
+    L.beacons.push({ x: cx - w * .3, y: top - 30 * u, ph: 4 }); L.origins.push({ x: cx + w * .2, y: top - 48 * u });
+  }
+
+  function makeLayer(L) {
+    const r = rng(L.seed), c = document.createElement('canvas');
+    c.width = Math.ceil(L.Lw * dpr); c.height = Math.ceil(hy * dpr);
+    const g = c.getContext('2d'); g.scale(dpr, dpr);
+    L.c = c; L.blinks = []; L.beacons = []; L.neons = []; L.origins = [];
+    let x = 0;
+    while (x < L.Lw) {
+      const w = rr(r, L.wMin, L.wMax) * u;
+      let h = rr(r, L.minH, L.maxH) * u;
+      if (x < 80 * u || x > L.Lw - 120 * u) h = L.minH * u * rr(r, 1, 1.3);
+      building(g, x, w, h, hy, L, r);
+      x += w + rr(r, 0, 3) * u;
+    }
+    if (L.landmarks) landmarks(g, L, r, hy);
+    return L;
+  }
+
+  function init() {
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    W = window.innerWidth; H = window.innerHeight;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    hy = Math.round(H * .66); u = Math.max(.55, H / 900);
+    const Lw = W * 1.6 + 200;
+    layers = [
+      { speed: 3,  Lw, minH: 40, maxH: 170, wMin: 18, wMax: 46, c1: '#1a2540', c2: '#3a2c3c', wp: .12, wa: .4,  sp: 3.2, seed: 11 },
+      { speed: 6,  Lw, minH: 60, maxH: 260, wMin: 22, wMax: 54, c1: '#0d1424', c2: '#1d1b2c', wp: .26, wa: .8,  sp: 5,   seed: 23, landmarks: true, beac: true },
+      { speed: 12, Lw, minH: 70, maxH: 230, wMin: 40, wMax: 90, c1: '#05060b', c2: '#0b0c14', wp: .32, wa: .95, sp: 7,   seed: 37 }
+    ].map(makeLayer);
+    const r = rng(5);
+    stars = Array.from({ length: 90 }, () => ({ x: r(), y: r() * .55, s: r() * 1.2 + .3, ph: r() * 6, sp: .5 + r() * 2 }));
+    dashes = Array.from({ length: 90 }, () => ({ x: r(), y: r(), l: 6 + r() * 26, ph: r() * 6, sp: .6 + r() * 1.6, a: .4 + r() * .6 }));
+    boats = [{ x: .1, y: .28, v: .006, s: 1.2, c: '#ff6a5a' }, { x: .6, y: .55, v: -.004, s: 1.6, c: '#8affc0' }, { x: .85, y: .4, v: .003, s: .9, c: '#ffd98a' }];
+    skyG = ctx.createLinearGradient(0, 0, 0, hy);
+    skyG.addColorStop(0, '#02030a'); skyG.addColorStop(.45, '#0a1020'); skyG.addColorStop(.8, '#251a2c'); skyG.addColorStop(1, '#5a3a2a');
+    waterG = ctx.createLinearGradient(0, hy, 0, H);
+    waterG.addColorStop(0, '#2a1d22'); waterG.addColorStop(1, '#05060a');
+    tintG = ctx.createLinearGradient(0, hy, 0, H);
+    tintG.addColorStop(0, 'rgba(8,8,16,.25)'); tintG.addColorStop(1, 'rgba(3,3,6,.8)');
+    hazeG = ctx.createLinearGradient(0, hy - 140 * u, 0, hy);
+    hazeG.addColorStop(0, 'rgba(255,150,70,0)'); hazeG.addColorStop(1, 'rgba(255,165,80,.24)');
+  }
+
+  function drawLayer(L, t) {
+    const off = (t * L.speed * u) % L.Lw;
+    for (let k = 0; k < 2; k++) {
+      const ox = -off + k * L.Lw;
+      if (ox > W || ox + L.Lw < 0) continue;
+      ctx.drawImage(L.c, ox, 0, L.Lw, hy);
+      for (const b of L.blinks) {
+        const bx = b.x + ox; if (bx < -5 || bx > W) continue;
+        ctx.globalAlpha = .2 + .8 * (.5 + .5 * Math.sin(t * b.sp + b.ph));
+        ctx.fillStyle = b.col; ctx.fillRect(bx, b.y, b.w, b.h);
+      }
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'lighter';
+      L.neons.forEach((n, i) => {
+        const nx = n.x + ox; if (nx < -100 || nx > W) return;
+        ctx.fillStyle = `hsla(${(t * 28 + i * 80) % 360},90%,60%,.34)`;
+        for (let j = 0; j < 6; j++) ctx.fillRect(nx, n.y + j * 16 * u, n.w, 6 * u);
+      });
+      for (const b of L.beacons) {
+        const bx = b.x + ox; if (bx < -10 || bx > W + 10) continue;
+        const a = Math.max(0, Math.sin(t * 2.2 + b.ph));
+        const g = ctx.createRadialGradient(bx, b.y, 0, bx, b.y, 7 * u);
+        g.addColorStop(0, `rgba(255,70,60,${.9 * a})`); g.addColorStop(1, 'rgba(255,70,60,0)');
+        ctx.fillStyle = g; ctx.fillRect(bx - 8 * u, b.y - 8 * u, 16 * u, 16 * u);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+  }
+
+  function drawBeams(L, t) {
+    const off = (t * L.speed * u) % L.Lw, cols = ['120,255,190', '255,210,120', '120,200,255'];
+    ctx.globalCompositeOperation = 'lighter'; ctx.lineCap = 'round';
+    for (let k = 0; k < 2; k++) {
+      const ox = -off + k * L.Lw;
+      L.origins.forEach((o, i) => {
+        const x = o.x + ox; if (x < -50 || x > W + 50) return;
+        const a = -Math.PI / 2 + Math.sin(t * .25 + i * 2) * .75 + (i - 1.5) * .12, len = 760 * u;
+        const ex = x + Math.cos(a) * len, ey = o.y + Math.sin(a) * len;
+        const g = ctx.createLinearGradient(x, o.y, ex, ey);
+        g.addColorStop(0, `rgba(${cols[i % 3]},.55)`); g.addColorStop(1, `rgba(${cols[i % 3]},0)`);
+        ctx.strokeStyle = g; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, o.y); ctx.lineTo(ex, ey); ctx.stroke();
+        ctx.lineWidth = 7; ctx.globalAlpha = .25; ctx.stroke(); ctx.globalAlpha = 1;
+      });
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  function frame(now) {
+    const t = (now - t0) / 1000, wh = H - hy;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+    ctx.fillStyle = skyG; ctx.fillRect(0, 0, W, hy + 1);
+    for (const s of stars) { ctx.fillStyle = `rgba(255,240,215,${.25 + .5 * (.5 + .5 * Math.sin(t * s.sp + s.ph))})`; ctx.fillRect(s.x * W, s.y * hy, s.s, s.s); }
+    drawLayer(layers[0], t); drawLayer(layers[1], t); drawBeams(layers[1], t); drawLayer(layers[2], t);
+    ctx.fillStyle = hazeG; ctx.fillRect(0, hy - 140 * u, W, 140 * u);
+
+    // water + reflection
+    ctx.fillStyle = waterG; ctx.fillRect(0, hy, W, wh);
+    const sh = 3;
+    for (let y = hy; y < H; y += sh) {
+      const k = y - hy, ys = hy - k - sh; if (ys < 0) break;
+      ctx.globalAlpha = .5 * (1 - k / wh * .75);
+      const dx = Math.sin(k * .14 + t * 1.4) * (1 + k / wh * 7);
+      ctx.drawImage(cv, 0, ys * dpr, cv.width, sh * dpr, dx, y, W, sh);
+    }
+    ctx.globalAlpha = 1; ctx.fillStyle = tintG; ctx.fillRect(0, hy, W, wh);
+    ctx.fillStyle = 'rgba(255,200,120,.22)'; ctx.fillRect(0, hy, W, 1);
+    ctx.globalCompositeOperation = 'lighter';
+    for (const d of dashes) {
+      const a = Math.max(0, Math.sin(t * d.sp + d.ph)) * .32 * d.a;
+      ctx.fillStyle = `rgba(255,200,120,${a})`;
+      ctx.fillRect(((d.x + t * .003) % 1) * W, hy + (d.y * d.y) * wh, d.l * u, 1.2);
+    }
+    for (const b of boats) {
+      const x = (((b.x + t * b.v) % 1.2) + 1.2) % 1.2 * W - .1 * W, y = hy + b.y * wh, s = b.s * u;
+      ctx.fillStyle = 'rgba(255,225,170,.9)'; ctx.fillRect(x, y, 10 * s, 1.6 * s);
+      ctx.fillStyle = b.c; ctx.fillRect(x + 10 * s, y, 2 * s, 2 * s);
+      const g = ctx.createLinearGradient(0, y, 0, y + 22 * s);
+      g.addColorStop(0, 'rgba(255,205,130,.35)'); g.addColorStop(1, 'rgba(255,205,130,0)');
+      ctx.fillStyle = g; ctx.fillRect(x + 2 * s, y + 2 * s, 6 * s + Math.sin(t * 3 + x) * 2, 22 * s);
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    requestAnimationFrame(frame);
+  }
+
+  init();
+  let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(init, 150); });
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
